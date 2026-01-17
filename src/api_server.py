@@ -126,6 +126,8 @@ async def add_repository(request: RepoRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/initialize")
 async def initialize_graph(request: InitRequest):
     """
     Scans the project directory and builds the baseline Knowledge Graph.

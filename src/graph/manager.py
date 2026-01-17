@@ -35,12 +35,18 @@ class GraphManager:
         # Create Definition Nodes and CONTAINS relationship
         for definition in data["definitions"]:
             label = "Function" if definition["type"] == "function" else "Class"
+            
+            # Extract line number and any additional metadata
+            line = definition.get("line")
+            
+            # Create node with line number
             tx.run(f"""
                 MERGE (d:{label} {{name: $name, filename: $filename, project_id: $project_id}})
+                SET d.line = $line
                 WITH d
                 MATCH (f:File {{name: $filename, project_id: $project_id}})
                 MERGE (f)-[:CONTAINS]->(d)
-                """, name=definition["name"], filename=filename, project_id=project_id)
+                """, name=definition["name"], filename=filename, project_id=project_id, line=line)
 
         # Create Calls and link to their PARENT Definition (Function/Class)
         for call in data["calls"]:
