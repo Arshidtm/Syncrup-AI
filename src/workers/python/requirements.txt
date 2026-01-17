@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+tree-sitter==0.21.3
+tree-sitter-python
+tree-sitter-typescript
+pydantic

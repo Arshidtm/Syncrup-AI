@@ -1,0 +1,5 @@
+package.json
+express
+tree-sitter
+tree-sitter-typescript
+pydantic # (Wait, this is JS, I meant requirements.txt if it were python, but it's JS)

@@ -1,0 +1,10 @@
+neo4j
+groq
+fastapi
+uvicorn
+requests
+tree-sitter>=0.22.0
+tree-sitter-python
+tree-sitter-typescript
+pydantic
+python-dotenv
