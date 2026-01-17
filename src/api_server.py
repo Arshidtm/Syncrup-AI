@@ -1,32 +1,38 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 import os
 import subprocess
 import time
 import sys
 from typing import Optional
 from contextlib import asynccontextmanager
-from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
-
-# Ensure the project root is in sys.path so 'src' can be imported correctly
+# Ensure the project root is in sys.path
 sys.path.append(os.getcwd())
 
+# Import core modules
 from src.discovery.crawler import CodeDiscovery
 from src.graph.manager import GraphManager
 from src.engine.analyzer import ImpactEngine
 from src.engine.groq_analyzer import GroqAnalyzer
 
-# Configuration - Load from environment variables
-NEO4J_URI = os.getenv("NEO4J_URI")
-NEO4J_USER = os.getenv("NEO4J_USER")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+# Import new utilities
+from src.config.settings import settings
+from src.models.project import project_registry
+from src.utils.logger import logger
+from src.exceptions import ProjectNotFoundError, PathNormalizationError
+from src.api.models import (
+    InitRequest, ImpactCheckRequest, ImpactCheckResponse,
+    RepoRequest, AffectedItem, ImpactLevel
+)
+
+# Configuration from settings
+NEO4J_URI = settings.neo4j_uri
+NEO4J_USER = settings.neo4j_user
+NEO4J_PASSWORD = settings.neo4j_password
+GROQ_API_KEY = settings.groq_api_key
 WORKER_URLS = {
-    "python": os.getenv("PYTHON_WORKER_URL", "http://localhost:8001"),
-    "typescript": os.getenv("TYPESCRIPT_WORKER_URL", "http://localhost:8002")
+    "python": settings.python_worker_url,
+    "typescript": settings.typescript_worker_url
 }
 
 # --- LIFESPAN MANAGER (Starts/Stops Workers) ---
@@ -56,19 +62,6 @@ async def lifespan(app: FastAPI):
     print("Cleanup complete.")
 
 app = FastAPI(title="Nexus AI Engine API", lifespan=lifespan)
-
-class ImpactRequest(BaseModel):
-    project_id: str
-    filename: str
-    changes: Optional[str] = ""
-
-class InitRequest(BaseModel):
-    project_id: str
-    project_path: Optional[str] = "project_demo"
-
-class RepoRequest(BaseModel):
-    project_id: str
-    repo_url: str
 
 # --- API ENDPOINTS ---
 
@@ -133,91 +126,153 @@ async def add_repository(request: RepoRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/initialize")
 async def initialize_graph(request: InitRequest):
     """
     Scans the project directory and builds the baseline Knowledge Graph.
+    Registers the project in the project registry.
     """
     try:
         # Use the provided project_path instead of current directory
         root = os.path.join(os.getcwd(), request.project_path)
-        print(f"Indexing project from: {root}")
+        logger.info(f"Initializing project '{request.project_id}' from: {root}")
+
+        # Register project in registry
+        project_registry.register(
+            project_id=request.project_id,
+            name=request.project_id,
+            root_path=root
+        )
+        logger.info(f"Registered project '{request.project_id}' in registry")
 
         discovery = CodeDiscovery(root, WORKER_URLS)
         graph = GraphManager(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, request.project_id)
         
-        # 1. Clear Graph
+        # 1. Clear Graph for this project
+        logger.info(f"Clearing existing graph data for project '{request.project_id}'")
         with graph.driver.session() as session:
-            session.run("MATCH (n) DETACH DELETE n")
+            session.run("MATCH (n {project_id: $project_id}) DETACH DELETE n", project_id=request.project_id)
 
         # 2. Parse and Update
+        logger.info("Discovering and parsing files...")
         files_data = discovery.discover_and_parse()
+        logger.info(f"Found {len(files_data)} files to process")
+        
         for file_analysis in files_data:
             graph.update_file_structure(file_analysis)
         
         # 3. Resolve Relationships
+        logger.info("Linking function calls to definitions...")
         graph.link_calls_to_definitions()
         graph.close()
         
-        return {"status": "success", "message": f"Graph initialized for {request.project_path}", "files_processed": len(files_data)}
+        logger.info(f"Successfully initialized project '{request.project_id}'")
+        return {
+            "status": "success", 
+            "message": f"Graph initialized for {request.project_path}", 
+            "files_processed": len(files_data),
+            "project_id": request.project_id
+        }
     except Exception as e:
+        logger.error(f"Failed to initialize project: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/check-impact")
-async def check_impact(request: ImpactRequest):
+@app.post("/check-impact", response_model=ImpactCheckResponse)
+async def check_impact(request: ImpactCheckRequest):
     """
     Performs impact analysis for a specific file change.
+    Uses PathNormalizer from project registry for consistent path handling.
     """
     try:
-        # 1. Setup
-        root = os.getcwd()
-        discovery = CodeDiscovery(root, WORKER_URLS)
+        logger.info(f"Impact check requested for file: {request.filename} in project: {request.project_id}")
+        
+        # 1. Get project and path normalizer
+        try:
+            normalizer = project_registry.get_normalizer(request.project_id)
+            project = project_registry.get(request.project_id)
+        except ProjectNotFoundError as e:
+            logger.error(f"Project not found: {request.project_id}")
+            raise HTTPException(status_code=404, detail=str(e))
+        
+        # 2. Normalize the filename
+        try:
+            normalized_filename = normalizer.normalize(request.filename)
+            logger.info(f"Normalized path: {request.filename} -> {normalized_filename}")
+        except ValueError as e:
+            logger.error(f"Path normalization failed: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Invalid file path: {str(e)}")
+        
+        # 3. Setup components
+        discovery = CodeDiscovery(project.root_path, WORKER_URLS)
         graph = GraphManager(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, request.project_id)
         impact_engine = ImpactEngine(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, request.project_id)
         groq_analyzer = GroqAnalyzer(GROQ_API_KEY)
-
-        # 2. Determine file and code context
-        file_path = os.path.join(root, request.filename)
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail=f"File {request.filename} not found")
         
-        with open(file_path, "r", encoding="utf-8") as f:
-            code_context = f.read()
-
-        # 3. Update Graph for the specific file
-        # Get the project root for this project_id
-        project_root = os.path.join(os.getcwd(), "project_demo")  # This should match initialization
+        # 4. Read code context if file exists
+        code_context = ""
+        if normalizer.exists(request.filename):
+            file_path = normalizer.to_absolute(normalized_filename)
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    code_context = f.read()
+                logger.info(f"Read code context from file ({len(code_context)} chars)")
+            except Exception as e:
+                logger.warning(f"Could not read file: {str(e)}")
+        else:
+            logger.warning(f"File not found locally: {request.filename}, using graph data only")
         
-        # Convert to relative path from project root (not workspace root)
-        rel_path = os.path.relpath(file_path, project_root)
-        normalized_filename = rel_path.replace('/', os.sep)  # Use OS-specific separators
+        # 5. Update graph if file exists locally
+        ext = os.path.splitext(normalized_filename)[1]
+        worker_key = "python" if ext == ".py" else "typescript" if ext in [".ts", ".tsx"] else None
         
-        ext = os.path.splitext(request.filename)[1]
-        worker_key = "python" if ext == ".py" else "typescript" if ext == ".ts" else None
+        if worker_key and normalizer.exists(request.filename):
+            file_path = normalizer.to_absolute(normalized_filename)
+            logger.info(f"Parsing file with {worker_key} worker")
+            analysis = discovery._send_to_worker(str(file_path), WORKER_URLS[worker_key])
+            if analysis:
+                analysis["filename"] = normalized_filename
+                graph.update_file_structure(analysis)
+                graph.link_calls_to_definitions()
+                logger.info("Graph updated successfully")
         
-        if not worker_key:
-            raise HTTPException(status_code=400, detail="Unsupported file type")
-
-        analysis = discovery._send_to_worker(file_path, WORKER_URLS[worker_key])
-        if analysis:
-            analysis["filename"] = normalized_filename  # Use OS-normalized path
-            graph.update_file_structure(analysis)
-            graph.link_calls_to_definitions()
-
-        # 4. Impact Analysis
-        affected = impact_engine.find_affected_nodes(normalized_filename)  # Use OS-normalized path
-        report = groq_analyzer.analyze_impact(normalized_filename, affected, changes=request.changes, code_context=code_context)
-
+        # 6. Perform impact analysis
+        logger.info("Finding affected nodes...")
+        affected = impact_engine.find_affected_nodes(normalized_filename)
+        logger.info(f"Found {len(affected)} affected items")
+        
+        logger.info("Generating LLM analysis...")
+        impact_report = groq_analyzer.analyze_impact(
+            normalized_filename, 
+            affected, 
+            changes=request.changes or "", 
+            code_context=code_context
+        )
+        
         graph.close()
         impact_engine.close()
-
-        return {
-            "status": "success",
-            "filename": normalized_filename,
-            "impact_report": report,
-            "blast_zone_size": len(affected)
-        }
+        
+        # 7. Return structured response
+        if isinstance(impact_report, dict):
+            impact_report["status"] = "success"
+            impact_report["blast_zone_size"] = len(affected)
+            logger.info(f"Impact analysis complete: {impact_report.get('impact_level', 'unknown')}")
+            return impact_report
+        else:
+            # Fallback for unexpected response format
+            logger.warning("Unexpected impact report format, using fallback")
+            return {
+                "status": "success",
+                "impact_level": ImpactLevel.ERROR,
+                "summary": "Analysis completed but response format unexpected",
+                "changed_file": normalized_filename,
+                "affected_items": [],
+                "recommendations": ["Manual review recommended"],
+                "blast_zone_size": len(affected)
+            }
+            
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Impact analysis failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/graph-data")

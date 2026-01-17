@@ -12,6 +12,7 @@ class ImpactEngine:
         """
         Finds dependencies at the FILE level, not symbol level.
         This works even after function renames because we query by filename property.
+        Returns detailed information including line numbers and symbol types.
         """
         query = """
         // Find ALL Functions/Classes that belong to this file (by filename property)
@@ -27,8 +28,12 @@ class ImpactEngine:
         
         RETURN DISTINCT 
             caller_file.name as affected_file, 
-            caller.name as affected_symbol, 
-            target.name as dependency_name
+            caller.name as affected_symbol,
+            caller.line as affected_line,
+            labels(caller) as caller_labels,
+            target.name as dependency_name,
+            target.line as dependency_line,
+            labels(target) as target_labels
         LIMIT 100
         """
         
@@ -36,10 +41,21 @@ class ImpactEngine:
             result = session.run(query, filename=filename, project_id=self.project_id)
             impacts = []
             for record in result:
+                # Determine symbol type from labels
+                caller_labels = record["caller_labels"]
+                target_labels = record["target_labels"]
+                
+                caller_type = "function" if "Function" in caller_labels else "class" if "Class" in caller_labels else "unknown"
+                target_type = "function" if "Function" in target_labels else "class" if "Class" in target_labels else "unknown"
+                
                 impacts.append({
                     "file": record["affected_file"],
                     "symbol": record["affected_symbol"],
-                    "depends_on": record["dependency_name"]
+                    "symbol_type": caller_type,
+                    "line_number": record["affected_line"],
+                    "depends_on": record["dependency_name"],
+                    "depends_on_type": target_type,
+                    "depends_on_line": record["dependency_line"]
                 })
             return impacts
 

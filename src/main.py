@@ -1,24 +1,25 @@
 import sys
 import os
-from dotenv import load_dotenv
+import json
 from src.discovery.crawler import CodeDiscovery
 from src.graph.manager import GraphManager
 from src.engine.analyzer import ImpactEngine
 from src.engine.groq_analyzer import GroqAnalyzer
 
-# Load environment variables from .env file
-load_dotenv()
+# Import new utilities
+from src.config.settings import settings
+from src.utils.logger import logger
 
-# Configuration - Load from environment variables
+# Configuration from settings
 WORKER_URLS = {
-    "python": os.getenv("PYTHON_WORKER_URL", "http://localhost:8001"),
-    "typescript": os.getenv("TYPESCRIPT_WORKER_URL", "http://localhost:8002")
+    "python": settings.python_worker_url,
+    "typescript": settings.typescript_worker_url
 }
 
-NEO4J_URI = os.getenv("NEO4J_URI")
-NEO4J_USER = os.getenv("NEO4J_USER")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+NEO4J_URI = settings.neo4j_uri
+NEO4J_USER = settings.neo4j_user
+NEO4J_PASSWORD = settings.neo4j_password
+GROQ_API_KEY = settings.groq_api_key
 
 def handle_file_change(filename: str, changes: str = ""):
     """
@@ -27,9 +28,9 @@ def handle_file_change(filename: str, changes: str = ""):
     2. Update Neo4j.
     3. Run Impact Analysis (Phase 3).
     """
-    print(f"Checking impact for: {filename}")
+    logger.info(f"Checking impact for: {filename}")
     if changes:
-        print(f"Change Context: {changes}")
+        logger.info(f"Change Context: {changes}")
     
     # 1. Initialize logic (use "default" project for backward compatibility)
     root = os.getcwd()
@@ -42,7 +43,7 @@ def handle_file_change(filename: str, changes: str = ""):
     # 2. Re-parse the specific file
     file_path = os.path.join(root, filename)
     if not os.path.exists(file_path):
-        print(f"Error: File {filename} not found.")
+        logger.error(f"File {filename} not found.")
         return
 
     # Read the code context to help the LLM see what actually changed
@@ -51,9 +52,9 @@ def handle_file_change(filename: str, changes: str = ""):
         with open(file_path, "r", encoding="utf-8") as f:
             code_context = f.read()
     except Exception as e:
-        print(f"Warning: Could not read code context: {e}")
+        logger.warning(f"Could not read code context: {e}")
 
-    print("Step 1: Parsing changed file...")
+    logger.info("Step 1: Parsing changed file...")
     # Convert to relative path from project root
     if os.path.isabs(filename):
         filename = os.path.relpath(filename, root)
@@ -67,26 +68,31 @@ def handle_file_change(filename: str, changes: str = ""):
     worker_key = "python" if ext == ".py" else "typescript" if ext == ".ts" else None
     
     if not worker_key or worker_key not in WORKER_URLS:
-        print(f"Error: No worker configured for extension {ext}")
+        logger.error(f"No worker configured for extension {ext}")
         return
 
     analysis = discovery._send_to_worker(file_path, WORKER_URLS[worker_key])
     
     if analysis:
         # 3. Update Graph
-        print("Step 2: Updating Knowledge Graph...")
+        logger.info("Step 2: Updating Knowledge Graph...")
         analysis["filename"] = filename  # Use OS-normalized path
         graph.update_file_structure(analysis)
         graph.link_calls_to_definitions()
         
         # 4. Trigger Impact Analysis
-        print("Step 3: Calculating Blast Zone traversal...")
+        logger.info("Step 3: Calculating Blast Zone traversal...")
         affected = impact_engine.find_affected_nodes(filename)  # Use OS-normalized path
         
-        print("Step 4: Generating LLM Insight using Groq...")
+        logger.info("Step 4: Generating LLM Insight using Groq...")
         report = groq_analyzer.analyze_impact(clean_filename, affected, changes=changes, code_context=code_context)
+        
+        # Display the structured JSON report
         print("\n" + "=== IMPACT REPORT (AI GENERATED) ===")
-        print(report)
+        if isinstance(report, dict):
+            print(json.dumps(report, indent=2))
+        else:
+            print(report)
         print("====================================")
     
     graph.close()
@@ -97,4 +103,4 @@ if __name__ == "__main__":
         changed_file = sys.argv[1]
         handle_file_change(changed_file)
     else:
-        print("Usage: python src/main.py <changed_filename>")
+        logger.error("Usage: python src/main.py <changed_filename>")
