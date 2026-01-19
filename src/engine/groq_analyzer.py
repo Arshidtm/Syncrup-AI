@@ -1,4 +1,52 @@
+"""
+Groq AI-Powered Impact Analyzer
+
+This module uses Groq's LLaMA-3.3-70B model to provide intelligent impact analysis
+with natural language explanations and actionable recommendations.
+
+Purpose:
+    While the Impact Engine identifies WHAT is affected through graph traversal,
+    the Groq Analyzer explains WHY it's affected and HOW to address it.
+
+Prompt Engineering Strategy:
+    The prompt includes:
+    1. Changed file name and description of changes
+    2. Code context (first 1000 chars of changed file)
+    3. Affected dependencies from graph traversal
+    4. Request for structured JSON output
+    
+    The LLM analyzes the semantic impact, not just structural dependencies.
+
+Response Format:
+    The LLM returns structured JSON with:
+    - impact_level: "high", "medium", "low", or "none"
+    - summary: Brief explanation of overall impact
+    - affected_items: List of affected symbols with reasoning
+    - recommendations: Specific actions to take
+
+Error Handling:
+    - Gracefully handles JSON parsing errors
+    - Falls back to structured error response
+    - Enriches LLM response with actual line numbers from Neo4j
+    - Removes markdown code blocks if present
+
+Model Configuration:
+    - Model: llama-3.3-70b-versatile
+    - Temperature: 0.1 (low for consistent, factual responses)
+    - Max tokens: 2000
+
+Example:
+    analyzer = GroqAnalyzer(api_key)
+    report = analyzer.analyze_impact(
+        filename="src/auth/login.py",
+        affected_nodes=[...],
+        changes="Changed function signature",
+        code_context="def authenticate_user(email): ..."
+    )
+    # Returns: {"impact_level": "high", "summary": "...", ...}
+"""
 import os
+
 from groq import Groq
 import json
 

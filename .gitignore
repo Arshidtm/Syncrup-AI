@@ -25,3 +25,8 @@ repos/
 
 # Neo4j
 *.db
+
+AI_TOOLS.md
+ARCHITECTURE.md
+DEVELOPER_GUIDE.md
+API_REFERENCE.md

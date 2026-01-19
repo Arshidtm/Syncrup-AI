@@ -1,4 +1,57 @@
+"""
+Python Code Parser using Tree-sitter
+
+This module implements a Tree-sitter based parser for Python code that extracts:
+- Function definitions
+- Class definitions
+- Function calls
+- Import statements
+
+Tree-sitter Advantages:
+    - Error-tolerant: Handles syntax errors gracefully
+    - Fast: Incremental parsing for large files
+    - Accurate: Precise line numbers and positions
+    - Consistent: Same API across all languages
+
+Parsing Strategy:
+    1. Parse code into concrete syntax tree (CST)
+    2. Traverse tree recursively
+    3. Extract relevant nodes (functions, classes, calls)
+    4. Track parent symbols for call attribution
+    5. Return structured data with line numbers
+
+Parent Symbol Tracking:
+    When traversing the tree, the parser tracks the current function or class
+    context. This allows calls to be attributed to their parent symbol, which
+    is crucial for building accurate dependency graphs.
+
+Output Format:
+    {
+        "definitions": [
+            {"type": "function", "name": "foo", "line": 10},
+            {"type": "class", "name": "Bar", "line": 20}
+        ],
+        "calls": [
+            {"name": "baz", "parent": "foo", "line": 12}
+        ],
+        "imports": [
+            {"content": "import os", "line": 1}
+        ]
+    }
+
+Node Types Extracted:
+    - function_definition: Function definitions
+    - class_definition: Class definitions
+    - call: Function/method invocations
+    - import_from_statement, import_statement: Imports
+
+Example:
+    parser = PythonParser()
+    result = parser.parse_code("def foo():\\n    bar()")
+    # Returns: {"definitions": [...], "calls": [...], "imports": [...]}
+"""
 import tree_sitter_python as tspython
+
 from tree_sitter import Language, Parser
 
 class PythonParser:

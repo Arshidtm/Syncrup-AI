@@ -1,4 +1,50 @@
+"""
+Graph Manager - Neo4j Database Operations
+
+This module manages all interactions with the Neo4j graph database, including:
+- Creating and updating nodes (File, Function, Class, Call)
+- Establishing relationships between code entities
+- Implementing cross-language dependency detection
+- Providing graph data for visualization
+
+Graph Schema:
+    Nodes:
+        - File: Represents source code files
+        - Function: Function definitions
+        - Class: Class definitions
+        - Call: Function/method invocations
+    
+    Relationships:
+        - CONTAINS: File contains Function/Class
+        - PERFORMS_CALL: File performs Call
+        - CALLS_OUT: Function/Class calls out to Call node
+        - TARGETS: Call targets a Function/Class definition
+        - DEPENDS_ON_SYMBOL: High-level dependency (used for impact analysis)
+        - CALLS_ENDPOINT: Cross-language API contract link
+
+Multi-Project Isolation:
+    All nodes include a project_id property to isolate data between projects.
+    All queries filter by project_id to ensure data isolation.
+
+Two-Phase Relationship Creation:
+    1. Initial phase: Create nodes and basic relationships (CONTAINS, CALLS_OUT)
+    2. Linking phase: Resolve calls to definitions and create DEPENDS_ON_SYMBOL edges
+    
+    This two-phase approach ensures all definitions exist before linking calls.
+
+Path Normalization:
+    Paths are stored with forward slashes (/) for cross-platform compatibility.
+    The PathNormalizer utility handles Windows/Unix path differences.
+
+Example:
+    graph = GraphManager(uri, user, password, "my-project")
+    graph.update_file_structure(analysis_result)
+    graph.link_calls_to_definitions()
+    data = graph.get_graph_data()
+    graph.close()
+"""
 from neo4j import GraphDatabase
+
 
 class GraphManager:
     def __init__(self, uri, user, password, project_id="default"):

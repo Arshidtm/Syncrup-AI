@@ -1,4 +1,44 @@
+"""
+Nexus AI Engine - Main API Server
+
+This module implements the FastAPI-based REST API server that serves as the main entry point
+for all client interactions with the Nexus AI Engine. It provides endpoints for:
+
+- Project initialization and repository indexing
+- Impact analysis for code changes
+- Graph data retrieval for visualization
+- Graph database management
+
+The server automatically manages language worker processes (Python and TypeScript parsers)
+through FastAPI's lifespan events, ensuring workers are started on server startup and
+gracefully terminated on shutdown.
+
+Multi-Project Support:
+    All operations are scoped by project_id, allowing multiple projects to be analyzed
+    simultaneously with isolated graph data in Neo4j.
+
+Worker Architecture:
+    Language-specific parsers run as separate FastAPI services on different ports:
+    - Python worker: Port 8001
+    - TypeScript worker: Port 8002
+    
+    Workers are spawned as subprocesses and communicate via HTTP.
+
+Configuration:
+    All settings are loaded from environment variables via pydantic-settings.
+    See .env.example for required configuration.
+
+Example:
+    Start the server:
+        $ python src/api_server.py
+    
+    Initialize a project:
+        $ curl -X POST http://localhost:8000/initialize-graph \\
+               -H "Content-Type: application/json" \\
+               -d '{"project_id": "my-app", "project_path": "/path/to/project"}'
+"""
 from fastapi import FastAPI, HTTPException
+
 import os
 import subprocess
 import time

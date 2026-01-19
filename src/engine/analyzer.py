@@ -1,4 +1,46 @@
+"""
+Impact Analysis Engine
+
+This module implements the core impact analysis algorithm that identifies code affected
+by changes to a specific file. It uses Neo4j graph traversal to find all downstream
+dependencies at the symbol level (functions and classes).
+
+Algorithm:
+    1. Find all symbols (functions/classes) defined in the changed file
+    2. Traverse DEPENDS_ON_SYMBOL relationships to find dependent symbols
+    3. Collect affected files, symbols, line numbers, and dependency metadata
+    4. Return structured impact data for AI analysis
+
+Key Features:
+    - Symbol-level precision (not just file-level)
+    - Handles function renames (queries by filename property)
+    - Returns line numbers for precise navigation
+    - Supports multi-project isolation via project_id
+    - Limits results to prevent runaway queries (100 max)
+
+Graph Traversal Strategy:
+    The query finds symbols by their filename property rather than following
+    CONTAINS relationships. This ensures renamed or deleted symbols are still
+    found if they have the filename property set.
+
+Output Format:
+    Returns a list of dictionaries with:
+    - file: Path to affected file
+    - symbol: Name of affected symbol
+    - symbol_type: "function" or "class"
+    - line_number: Line where symbol is defined
+    - depends_on: Name of symbol in changed file
+    - depends_on_type: Type of dependency
+    - depends_on_line: Line number of dependency
+
+Example:
+    engine = ImpactEngine(uri, user, password, "my-project")
+    affected = engine.find_affected_nodes("src/auth/login.py")
+    # Returns: [{"file": "src/api/routes.py", "symbol": "login_endpoint", ...}]
+    engine.close()
+"""
 from neo4j import GraphDatabase
+
 
 class ImpactEngine:
     def __init__(self, uri, user, password, project_id="default"):

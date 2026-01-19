@@ -1,4 +1,53 @@
+"""
+Code Discovery and File Scanning
+
+This module handles project directory scanning and delegates file parsing to
+language-specific workers via HTTP.
+
+Responsibilities:
+    1. Recursively traverse project directories
+    2. Filter files by supported extensions (.py, .ts, .js)
+    3. Exclude virtual environments and hidden folders
+    4. Send files to appropriate language workers
+    5. Aggregate parsing results
+
+Worker Delegation:
+    Files are routed to workers based on extension:
+    - .py → Python worker (port 8001)
+    - .ts, .js → TypeScript worker (port 8002)
+
+Exclusion Patterns:
+    Automatically excludes:
+    - Virtual environments (ai_env, venv, env)
+    - Hidden directories (.git, .vscode, etc.)
+    - Node modules
+    - Build artifacts
+
+Worker Communication:
+    Workers are HTTP services that accept:
+    - code: File contents as string
+    - filename: Relative path from project root
+    
+    Workers return:
+    - definitions: Functions and classes
+    - calls: Function invocations
+    - imports: Import statements
+
+Error Handling:
+    - Continues on individual file failures
+    - Logs errors for debugging
+    - Returns None for failed files
+
+Example:
+    discovery = CodeDiscovery("/path/to/project", {
+        "python": "http://localhost:8001",
+        "typescript": "http://localhost:8002"
+    })
+    results = discovery.discover_and_parse()
+    # Returns: [{"filename": "...", "data": {...}}, ...]
+"""
 import os
+
 import requests
 import json
 from pathlib import Path
