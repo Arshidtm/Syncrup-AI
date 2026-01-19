@@ -86,6 +86,12 @@ curl -X POST http://localhost:8000/check-impact \
 
 Open `graph_visualization.html` in your browser and it will fetch data from `http://localhost:8000/graph-data?project_id=my-project`
 
+**Visual Example:**
+
+![Graph Visualization Demo](graph_sample.mp4)
+
+*Interactive dependency graph showing code relationships and impact analysis*
+
 ## 📐 Architecture Overview
 
 ```mermaid
