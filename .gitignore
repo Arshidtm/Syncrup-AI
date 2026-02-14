@@ -26,6 +26,30 @@ repos/
 # Neo4j
 *.db
 
+# Start of custom ignores
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build & Dist
+dist/
+build/
+*.egg-info/
+
+# Testing & Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Type Checking & Linting
+.mypy_cache/
+.ruff_cache/
+
+# Node (Global ignore just in case)
+node_modules/
+
 # AI_TOOLS.md
 # ARCHITECTURE.md
 # DEVELOPER_GUIDE.md

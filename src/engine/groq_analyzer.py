@@ -84,6 +84,11 @@ class GroqAnalyzer:
 
 TASK: Analyze if the code changes in '{filename}' will impact the downstream dependencies listed below.
 
+SPECIFIC FOCUS:
+- Look for API contract violations (e.g., RENAMING an endpoint URL, changing request/response schema).
+- If a backend function is renamed or modified, check if any frontend calls (axios/fetch) are linking to it.
+- If a frontend call is broken, flag it as HIGH IMPACT.
+
 CHANGE DESCRIPTION:
 {changes if changes else "No specific description provided. Assume generic logic changes."}
 
@@ -94,10 +99,10 @@ AFFECTED DEPENDENCIES (from Knowledge Graph):
 {json.dumps(affected_summary, indent=2)}
 
 INSTRUCTIONS:
-1. Determine the impact level: "high" (breaking changes), "medium" (potential issues), "low" (minor impact), or "none" (no impact)
-2. For each affected item, analyze if it will actually break or just needs attention
-3. Provide specific reasoning for each affected symbol
-4. Give actionable recommendations
+1. Determine the impact level: "high" (breaking changes, especially API contracts), "medium" (potential issues), "low" (minor impact), or "none" (no impact).
+2. For each affected item, analyze if it will actually break or just needs attention.
+3. Provide specific reasoning (e.g., "Frontend 'fetch' call at line 42 fails because endpoint '/users' was renamed to '/customers'").
+4. Give actionable recommendations (e.g., "Update frontend API client").
 
 CRITICAL: You MUST respond with ONLY valid JSON in this exact format (no markdown, no code blocks, no extra text):
 

@@ -203,3 +203,15 @@ class GraphManager:
                 })
         
         return {"nodes": nodes, "edges": edges}
+
+    def delete_repo_nodes(self, repo_name_prefix):
+        """
+        Deletes all nodes (File, Function, Class, Call) associated with a specific repository
+        within the project. Uses the filename prefix to identify nodes.
+        """
+        with self.driver.session() as session:
+            session.run("""
+                MATCH (n {project_id: $project_id})
+                WHERE n.filename STARTS WITH $prefix
+                DETACH DELETE n
+            """, project_id=self.project_id, prefix=repo_name_prefix)

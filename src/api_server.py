@@ -38,6 +38,7 @@ Example:
                -d '{"project_id": "my-app", "project_path": "/path/to/project"}'
 """
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 import os
 import subprocess
@@ -80,6 +81,11 @@ workers = []
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # STARTUP: Initialize SQLite database
+    from src.db.database import init_db
+    init_db()
+    print("✅ SQLite database initialized")
+
     # STARTUP: Start parser workers
     print("Starting background parser workers...")
     env = {**os.environ, "PYTHONPATH": os.getcwd()}
@@ -102,6 +108,25 @@ async def lifespan(app: FastAPI):
     print("Cleanup complete.")
 
 app = FastAPI(title="Nexus AI Engine API", lifespan=lifespan)
+
+# --- CORS MIDDLEWARE (allow frontend at localhost:3000) ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- REGISTER v1 API ROUTERS ---
+from src.api.v1.projects import router as projects_router
+from src.api.v1.repositories import router as repos_router, conn_router
+from src.api.v1.webhooks import router as webhooks_router
+
+app.include_router(projects_router)
+app.include_router(repos_router)
+app.include_router(conn_router)
+app.include_router(webhooks_router)
 
 # --- API ENDPOINTS ---
 
@@ -146,11 +171,30 @@ async def add_repository(request: RepoRequest):
         # Clean up: Delete the local clone after processing
         try:
             if clone_path.exists():
-                # On Windows, ensure all file handles are released
                 import time
-                time.sleep(0.5)  # Brief pause to ensure file handles are released
-                shutil.rmtree(clone_path, ignore_errors=False)
-                print(f"✅ Cleaned up local clone: {clone_path}")
+                import stat
+                import gc
+
+                # Force-release any lingering Python file handles
+                gc.collect()
+                time.sleep(0.5)
+
+                def _remove_readonly(func, path, _excinfo):
+                    """Handle read-only files (common in .git directories on Windows)."""
+                    os.chmod(path, stat.S_IWRITE)
+                    func(path)
+
+                # Retry up to 3 times — Windows may hold brief locks on files
+                for attempt in range(3):
+                    try:
+                        shutil.rmtree(clone_path, onerror=_remove_readonly)
+                        print(f"✅ Cleaned up local clone: {clone_path}")
+                        break
+                    except Exception:
+                        if attempt < 2:
+                            time.sleep(1 * (attempt + 1))  # 1s, 2s backoff
+                        else:
+                            raise
         except Exception as cleanup_error:
             print(f"⚠️ Warning: Could not delete clone directory: {cleanup_error}")
             # Don't fail the request if cleanup fails

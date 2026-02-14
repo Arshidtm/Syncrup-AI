@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     
     # Logging Configuration
     log_level: str = "INFO"
+
+    # GitHub Webhook
+    github_webhook_secret: str = ""
     
     class Config:
         env_file = ".env"
